@@ -32,6 +32,7 @@ int main(int argc, char *argv[])
     smashme(argv[1]);
 }
 ```
+
 *argv[1]* is directly passed as an input to *printf*.
 
 *Buffer Overflow:* 
@@ -52,6 +53,7 @@ void smashme(char *input1)
     fgets(input3, max_size, fp);
 }
 ```
+
 *input3* has 96 bytes, but since we have used *fgets* with a *max_size* of 200 characters, up to 200 bytes in *input.txt* is copied into *input3*.
 
 As mentioned in the description, this program has *canary* security mechanism enabled, so we must exploit format string vulnerability to leak the canary and then execute our shellcode by injecting the shellcode and the canary into the stack using the buffer overflow vulnerability. We have to complete the following tasks:
@@ -68,7 +70,9 @@ Canary is pushed into the stack right after pushing RBP (or EBP). We can inspect
 gdb -q ./canary
 (gdb) disas smashme
 ```
+
 ![image](./pics/chk_fail.png)
+
 As you can see, at +172 offset canary is loaded into RAX and at line +187 (in case it's changed) *__stack_chk_fail* is called. We can add a breakpoint at +172 and then check the stack to get the exact address of RBP and canary.
 
 ```bash
@@ -80,9 +84,12 @@ Now, we can run the following commands to examine the stack:
 (gdb) i frame
 ```
 ![image](./pics/iframe.png)
+
 By examining the space around RIP's address we can find canary's location: **0x7fffffff378** & **0x7fffffff37c**:
 ![image](./pics/canaryloc.png)
+
 As you can see, canary is stored at **($rip) - 16** (and `RIP=0x4012c2`).
+
 ##### Forming Format String
 We must first figure out how much we need to read from the stack to get to canary. Canary is at ```($rip) - 16``` and `RIP=0x4012c2` so it's easier to look for rip. We must use **%p** instead of **%x** because %x only prints 4 bytes but %p prints an address (4 or 8 bytes depending on the architecture).
 
@@ -90,19 +97,25 @@ We must first figure out how much we need to read from the stack to get to canar
 ./canary $(python3 -c 'print("%p." * 30)')
 ```
 ![image](./pics/formatstr.png)
+
 So we need **21 * %p** to reach canary's location and leak its value (also we can see that canary is random and null terminated).
 
 ##### Finding RIP Offset
 To find RIP offset we can use gdb. We run the program with different input sizes in **input.txt** file, and we examine stack around $rip. For example:
+
 ![image](./pics/inputtxt.png)
+
 We first exit gdb temporarily by typing ```shell```, then we write 100 *A*s in input.txt. Now we can get back to gdb by running ```exit```.
 
 We can now run the program and inspect the stack after hitting the breakpoint we added earlier:
+
 ![image](./pics/ripoffset.png)
+
 RIP is at **0x7fffffffe3c8** while input file's last bytes are stored at **0x7fffffffe3b0** (we can also see the appended 0xa or \n). We need another 4 bytes to reach canary's location. After writing 8 bytes of canary at this location, we'll need another 8 bytes to reach rip's location. So we'll need the following pattern:
 ```
 104B of [SHELLCODE/NOP] + 8B of [CANARY_VALUE] + 8B of junk + 8B of new RIP
 ```
+
 #### Forming The Shellcode and Writing the Exploit
 Now we have the structure for our payload. But we still need a shellcode. We can generate our own shellcode or we can look for a shellcode that works for our target. I've used [this](http://shell-storm.org/shellcode/files/shellcode-603.php) shellcode, it's 30 bytes long and will left us with 74 bytes of nop sled. We also need to replace RIP with an address somewhere in the middle of our nop sled. We can find this address by inspecting the stack after injecting the payload just like the way we found RIP offset. We can try `0x7fffffffe558` for example.
 
@@ -136,6 +149,7 @@ proc.interactive()
 ```
 
 We first run the program using *"%p"\*21* as input, we read and convert the leaked canary value and then we prepare our payload and write it inside our input.txt file, then we enter interactive mode:
+
 ![image](./pics/shell.png)
 
 ### PART 2 (ROP)
@@ -212,18 +226,23 @@ We can add a breakpoint just before exiting ```read_file``` and inspect the stac
 (gdb) x/30x 0xffffd50c - 32
 ```
 The result:
+
 ![image](./pics/eipoffset.png)
+
 As you can see, 130 bytes is more than what we need. We only need 130 - 18 = 112 bytes for padding.
 
 ##### Finding Gadgets & Function Addresses
 Finding address of the functions is easy. We can use gdb, add a breakpoint, and then using ```p &function``` command while the program is running:
+
 ![image](./pics/funcaddress.png)
+
 For gadgets, we need gadgets in the form of ```pop ret```. We can find these gadgets using gdb-peda or pwntools libraries.
 
 So we can install peda, add a breakpoint, and then run the following command:
 ```
 gdb-peda$ ropgadget
 ```
+
 ![image](./pics/gadgets.png)
 
 ##### Writing & Running The Exploit
@@ -259,6 +278,7 @@ And we can run it:
 ```bash
 sudo python3 exploit2.py
 ```
+
 ![image](./pics/res2.png)
 
 
